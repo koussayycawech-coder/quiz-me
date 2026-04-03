@@ -15,6 +15,7 @@ body {
     color: white;
     text-align: center;
     padding: 50px;
+    overflow-x: hidden;
 }
 .container {
     background: #1e293b;
@@ -23,6 +24,7 @@ body {
     width: 90%;
     max-width: 500px;
     margin: auto;
+    margin-bottom: 20px;
 }
 input {
     padding: 10px;
@@ -39,6 +41,16 @@ button {
     background: purple;
     color: white;
     cursor: pointer;
+}
+.emoji {
+    position: absolute;
+    font-size: 2rem;
+    pointer-events: none;
+    animation: fall 3s linear forwards;
+}
+@keyframes fall {
+    0% { transform: translateY(0px) rotate(0deg);}
+    100% { transform: translateY(600px) rotate(360deg);}
 }
 </style>
 </head>
@@ -64,6 +76,13 @@ button {
     <h3>🏆 الفائزون</h3>
     <ul id="winners"></ul>
 </div>
+
+<div class="container">
+    <h3>🏅 ليدر بورد</h3>
+    <ol id="leaderboard"></ol>
+</div>
+
+<audio id="laughSound" src="https://www.soundjay.com/human/laugh-01.mp3"></audio>
 
 <script>
 // ==================== Firebase ====================
@@ -129,6 +148,7 @@ const questions = [
 let current = 0;
 let player = "";
 
+// ==================== الدوال ====================
 function normalize(text){ return text.toLowerCase().replace(/\s+/g,""); }
 
 function startGame(){
@@ -145,12 +165,26 @@ function loadQuestion(){
     document.getElementById("msg").innerText="";
 }
 
+function showEmojis(){
+    const emojis = ["😂","🤣","😹","😆"];
+    const laughSound = document.getElementById("laughSound");
+    laughSound.currentTime = 0;
+    laughSound.play();
+    for(let i=0;i<20;i++){
+        let e = document.createElement("div");
+        e.className="emoji";
+        e.style.left = Math.random()*90 + "%";
+        e.innerText = emojis[Math.floor(Math.random()*emojis.length)];
+        document.body.appendChild(e);
+        setTimeout(()=> e.remove(),3000);
+    }
+}
+
 function checkAnswer(){
     let rawAnswer = document.getElementById("answer").value;
     let user = normalize(rawAnswer);
 
     db.ref("logs").push({name: player, question: questions[current].q, answer: rawAnswer, time: Date.now()});
-
     sendTelegram(`📩 محاولة جديدة
 👤 ${player}
 ❓ ${questions[current].q}
@@ -160,6 +194,16 @@ function checkAnswer(){
 
     if(answers.includes(user)){
         current++;
+
+        // تحديث أعلى score فقط
+        const scoreRef = db.ref("scores/" + player);
+        scoreRef.get().then(snapshot => {
+            let prevScore = snapshot.exists() ? snapshot.val().score : 0;
+            if(current > prevScore){
+                scoreRef.set({name: player, score: current});
+            }
+        });
+
         sendTelegram(`✅ إجابة صحيحة!
 👤 ${player}
 ✏️ كتب: ${rawAnswer}
@@ -169,6 +213,7 @@ function checkAnswer(){
             db.ref("winners").push(player);
             sendTelegram(`🏆 فاز!
 👤 ${player} خلص كل الأسئلة 🔥`);
+            showEmojis();
             document.body.innerHTML = "<h2>يعني عرفت عليا هذا الكل و معرفتش شكون نحب؟ 🤣</h2>";
         } else {
             loadQuestion();
@@ -181,10 +226,12 @@ function checkAnswer(){
 👤 ${player}
 ✏️ كتب: ${rawAnswer}
 🔁 رجع للبداية`);
+        showEmojis();
         setTimeout(loadQuestion,1500);
     }
 }
 
+// ==================== عرض الفائزين ====================
 db.ref("winners").on("value", snap=>{
     let data = snap.val();
     let list = document.getElementById("winners");
@@ -196,6 +243,26 @@ db.ref("winners").on("value", snap=>{
     }
 });
 
+// ==================== عرض Leaderboard ====================
+db.ref("scores").orderByChild("score").on("value", snap=>{
+    let data = snap.val();
+    let list = document.getElementById("leaderboard");
+    list.innerHTML="";
+    let sorted = [];
+    for(let key in data){
+        if(data[key] && data[key].name !== undefined && data[key].score !== undefined){
+            sorted.push(data[key]);
+        }
+    }
+    sorted.sort((a,b)=>b.score - a.score);
+    sorted.forEach(p=>{
+        let li = document.createElement("li");
+        li.innerText = `${p.name} - ${p.score} سؤال`;
+        list.appendChild(li);
+    });
+});
+
+// ==================== Enter لتأكيد الإجابة ====================
 document.addEventListener("keyup", function(e){
     if(e.key === "Enter"){
         checkAnswer();
